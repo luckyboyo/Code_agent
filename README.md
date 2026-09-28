@@ -1,4 +1,4 @@
-# SH Agent
+# Code Agent
 
 > 基于 LangGraph 的 Multi-Agent 编码助手 — 5 个 AI Agent 协作完成编程任务
 
