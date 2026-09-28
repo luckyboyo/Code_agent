@@ -1,0 +1,46 @@
+# Reviewer Golden Dataset
+
+- name: "审查通过-代码规范"
+  input: "审查 tools/file_tools.py"
+  context:
+    exploration_result: "file_tools.py 包含 read_file, write_file, edit_file"
+  mock_output: |
+    **审查通过**
+    改动逻辑正确，路径安全检查到位，无安全风险。
+    代码风格与项目一致。
+  expected:
+    must_contain: ["审查通过"]
+
+- name: "审查不通过-SQL注入"
+  input: "审查 storage/sql_store.py"
+  context:
+    exploration_result: "sql_store.py 包含SQL查询拼接"
+  mock_output: |
+    **审查不通过**
+    1. 第74行存在SQL注入风险，应使用参数化查询
+    2. 第55行缺少连接超时处理
+  expected:
+    must_contain: ["审查不通过", "注入", "参数化"]
+
+- name: "审查不通过-命令注入"
+  input: "审查 tools/shell_tools.py"
+  context:
+    exploration_result: "shell_tools.py 执行Shell命令"
+  mock_output: |
+    **审查不通过**
+    1. shell=True 存在命令注入风险
+    2. 建议增加命令参数校验
+  expected:
+    must_contain: ["审查不通过", "注入"]
+
+- name: "审查通过-小建议"
+  input: "审查 cli.py"
+  context:
+    exploration_result: "cli.py 包含REPL入口"
+  mock_output: |
+    **审查通过**
+    整体逻辑清晰，错误处理完善。
+    小建议：第145行可提取为独立方法（非阻塞项）。
+  expected:
+    must_contain: ["审查通过"]
+    must_not_contain: ["审查不通过"]

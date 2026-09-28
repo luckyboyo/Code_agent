@@ -1,0 +1,48 @@
+# Coder Golden Dataset
+
+- name: "新增工具函数"
+  input: "在 tools/ 下新增一个计时器工具"
+  context:
+    exploration_result: "tools/ 目录包含 file_tools.py, search_tools.py, shell_tools.py"
+    relevant_files: ["code_agent/tools/file_tools.py"]
+  mock_output: |
+    已创建 code_agent/tools/timer_tools.py
+    包含 @tool 装饰的 measure_time 函数
+    [编码完成]
+  expected:
+    must_contain: ["编码完成"]
+    must_not_contain: ["[错误]"]
+
+- name: "修复空指针"
+  input: "修复 graph.py 中 variables 可能为 None 的问题"
+  context:
+    exploration_result: "graph.py:45 行 variables.split() 未做空值检查"
+    relevant_files: ["code_agent/graph.py"]
+  mock_output: |
+    通过 edit_file 修改了 graph.py，在 variables.split() 前增加了空值检查
+    [编码完成]
+  expected:
+    must_contain: ["编码完成", "edit_file"]
+
+- name: "修改失败-匹配不唯一"
+  input: "修改 README.md 加一行说明"
+  context:
+    exploration_result: "README.md 是项目说明文档"
+  mock_output: |
+    [错误] old_string 匹配到 5 处，请提供更多上下文使匹配唯一。
+    匹配位置: 第3行、第12行、...
+  expected:
+    must_contain: ["匹配到", "匹配唯一"]
+
+- name: "Reviewer反馈修改"
+  input: "根据Review意见修复注入问题"
+  context:
+    exploration_result: "shell_tools.py 有命令注入"
+    review_feedback: "1. 使用参数列表替代shell=True 2. 增加超时处理"
+  mock_output: |
+    逐条处理Review意见：
+    1. 已改为 subprocess.run([cmd], shell=False)
+    2. 已增加 timeout 参数
+    [编码完成]
+  expected:
+    must_contain: ["编码完成", "shell=False", "timeout"]

@@ -1,0 +1,73 @@
+# ── 模型配置 ──
+model:
+  chat_model: "deepseek-v4-flash"
+  api_key_env: "OPENAI_API_KEY"
+  base_url_env: "OPENAI_BASE_URL"
+
+# ── Redis 配置 ──
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+  password: ""
+  # 缓存过期时间（秒）
+  ttl_file_cache: 300
+  ttl_grep_cache: 30
+
+# ── PostgreSQL 审计日志配置（可选） ──
+postgres:
+  enabled: false
+  host: "localhost"
+  port: 5432
+  database: "sh_agent"
+  user: "postgres"
+  password_env: "PG_PASSWORD"
+
+# ── Agent 配置 ──
+agent:
+  max_review_retries: 3
+  max_explore_files: 5
+  model_temperature: 0.1
+  max_tool_calls_per_turn: 10
+
+# ── 安全配置 ──
+safety:
+  # Bash 命令白名单前缀
+  bash_allowed_prefixes:
+    - "git "
+    - "python "
+    - "pytest "
+    - "pip "
+    - "npm "
+    - "node "
+    - "ls "
+    - "cat "
+    - "echo "
+    - "grep "
+    - "rg "
+    - "find "
+    - "wc "
+    - "head "
+    - "tail "
+    - "sort "
+    - "uniq "
+  # 禁止的 Bash 关键词
+  bash_blocked_keywords:
+    - "rm -rf /"
+    - "sudo "
+    - "chmod 777"
+    - "> /dev/"
+    - "mkfs."
+    - "dd if="
+  # 需要用户确认的文件路径模式
+  confirm_paths:
+    - "*.env"
+    - "*.key"
+    - "*.pem"
+    - "config/*.yml"
+    - "*.secret"
+
+# ── 界面配置 ──
+ui:
+  show_agent_thinking: true
+  max_history_display: 20

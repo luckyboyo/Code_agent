@@ -1,0 +1,52 @@
+# Explorer Golden Dataset
+
+- name: "定位路由相关代码"
+  input: "找到所有路由相关的代码"
+  mock_output: |
+    通过 grep 搜索 'route' 关键词，找到以下文件：
+    - code_agent/graph.py: 包含 StateGraph 路由定义
+    - code_agent/agents/supervisor.py: 包含 parse_decision 路由决策
+    [探索完成]
+  expected:
+    must_contain: ["graph.py", "supervisor.py"]
+    must_not_contain: ["编码完成"]
+
+- name: "列出项目结构"
+  input: "列出项目的目录结构"
+  mock_output: |
+    顶层目录:
+    - code_agent/ (主源码)
+    - config/ (配置)
+    - tests/ (测试)
+    [探索完成]
+  expected:
+    must_contain: ["code_agent"]
+    must_not_contain: ["write_file", "edit_file"]
+
+- name: "找到所有Agent定义"
+  input: "这个项目有哪些Agent"
+  mock_output: |
+    共5个Agent:
+    - supervisor.py
+    - explorer.py
+    - coder.py
+    - reviewer.py
+    - executor.py
+    [探索完成]
+  expected:
+    must_contain: ["supervisor", "explorer", "coder", "reviewer", "executor"]
+    must_match: ["supervisor", "explorer", "coder", "reviewer", "executor"]
+
+- name: "空项目搜索"
+  input: "找到所有TODO注释"
+  mock_output: "[无匹配] TODO"
+  expected:
+    must_contain: ["无匹配"]
+
+- name: "探索结果须标记完成"
+  input: "找到CLI入口文件"
+  mock_output: |
+    cli.py 是CLI入口，包含main函数。
+    [探索完成]
+  expected:
+    must_contain: ["探索完成"]

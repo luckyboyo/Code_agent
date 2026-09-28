@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+
+# 环境变量（不要提交 API Key）
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 历史记录
+.sh_agent_history
+.code_agent_history
+
+# OS
+.DS_Store
+Thumbs.db
+
+# tmp
+*.tmp
+*.log

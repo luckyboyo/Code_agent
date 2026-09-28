@@ -1,0 +1,51 @@
+# Executor Golden Dataset
+
+- name: "pytest全部通过"
+  input: "运行测试"
+  context:
+    review_approved: true
+  mock_output: |
+    执行: pytest tests/ -v --tb=short
+    结果: 89 passed in 0.89s
+    [执行完成]
+  expected:
+    must_contain: ["pytest", "passed", "执行完成"]
+    must_not_contain: ["failed", "error"]
+
+- name: "测试有失败"
+  input: "运行测试"
+  context:
+    review_approved: true
+    relevant_files: ["tests/unit/test_safety.py"]
+  mock_output: |
+    执行: pytest tests/unit/test_safety.py -v
+    结果: 18 passed, 2 failed
+    FAILED test_empty_command_rejected
+    FAILED test_whitespace_only_rejected
+    [执行完成]
+  expected:
+    must_contain: ["执行完成", "failed"]
+
+- name: "Python语法检查"
+  input: "验证语法正确性"
+  context:
+    review_approved: false
+    relevant_files: ["code_agent/tools/shell_tools.py"]
+  mock_output: |
+    执行: python -m py_compile code_agent/tools/shell_tools.py
+    结果: 编译通过，无语法错误
+    [执行完成]
+  expected:
+    must_contain: ["执行完成"]
+    must_not_contain: ["error", "failed"]
+
+- name: "执行超时"
+  input: "运行测试"
+  context:
+    review_approved: true
+  mock_output: |
+    执行: pytest tests/ --timeout=30
+    结果: [超时] 命令执行超过 30s，已终止
+    [执行完成]
+  expected:
+    must_contain: ["超时", "执行完成"]

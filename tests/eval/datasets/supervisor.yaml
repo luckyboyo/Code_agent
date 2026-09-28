@@ -1,0 +1,97 @@
+# Supervisor Golden Dataset
+# 评测 Supervisor 的任务拆解和路由决策能力
+
+- name: "只读分析任务-路由到explore"
+  input: "帮我分析 graph.py 的代码逻辑"
+  mock_output: "任务分析: 只读代码分析\n执行计划: Explorer → finish\n决策: explore"
+  mock_metadata:
+    decision: "explore"
+  expected:
+    route_decision: "explore"
+    must_contain: ["explore"]
+    must_not_contain: ["code", "execute"]
+
+- name: "代码修改任务-路由到explore"
+  input: "给 utils.py 添加参数校验"
+  mock_output: "任务分析: 需要先了解代码再修改\n执行计划: Explorer → Coder\n决策: explore"
+  mock_metadata:
+    decision: "explore"
+  expected:
+    route_decision: "explore"
+
+- name: "已探索后可写代码"
+  input: "修复 graph.py 中的空指针"
+  context:
+    exploration_result: "graph.py 第23行有空指针风险"
+  mock_output: "任务分析: 探索完成，可以写代码\n决策: code"
+  mock_metadata:
+    decision: "code"
+  expected:
+    route_decision: "code"
+    must_contain: ["code"]
+
+- name: "只读审查任务"
+  input: "审查 cli.py 的代码质量"
+  context:
+    exploration_result: "cli.py 共311行，包含main函数和配置向导"
+  mock_output: "任务分析: 审查已有代码\n决策: review"
+  mock_metadata:
+    decision: "review"
+  expected:
+    route_decision: "review"
+
+- name: "运行测试任务"
+  input: "运行当前项目的所有测试"
+  context:
+    exploration_result: "项目有tests/目录"
+  mock_output: "任务分析: 执行测试\n决策: execute"
+  mock_metadata:
+    decision: "execute"
+  expected:
+    route_decision: "execute"
+
+- name: "审查不通过-超轮次强制结束"
+  input: "修复安全问题"
+  context:
+    exploration_result: "已分析"
+    review_feedback: "存在注入漏洞"
+    review_approved: false
+    retry_count: 3
+  mock_output: "任务分析: 审修已达上限，终止\n决策: finish"
+  mock_metadata:
+    decision: "finish"
+  expected:
+    route_decision: "finish"
+
+- name: "审查通过-调度执行测试"
+  input: "修复安全问题"
+  context:
+    exploration_result: "已分析"
+    review_feedback: "审查通过"
+    review_approved: true
+  mock_output: "任务分析: 审查通过，需要验证\n决策: execute"
+  mock_metadata:
+    decision: "execute"
+  expected:
+    route_decision: "execute"
+
+- name: "所有步骤完成-finish"
+  input: "修复安全问题"
+  context:
+    exploration_result: "已分析"
+    review_feedback: "审查通过"
+    review_approved: true
+    test_result: "10 passed"
+  mock_output: "任务分析: 全部完成\n决策: finish"
+  mock_metadata:
+    decision: "finish"
+  expected:
+    route_decision: "finish"
+
+- name: "模糊任务-默认探索"
+  input: "这个项目怎么样"
+  mock_output: "任务分析: 不确定意图，先探索项目\n决策: explore"
+  mock_metadata:
+    decision: "explore"
+  expected:
+    route_decision: "explore"

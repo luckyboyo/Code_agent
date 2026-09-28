@@ -1,0 +1,45 @@
+[project]
+name = "sh-agent"
+version = "0.1.0"
+description = "Multi-Agent 编码助手 — 基于 LangGraph 的协作式代码助手"
+requires-python = ">=3.11"
+dependencies = [
+    "langchain>=0.3.0,<0.4.0",
+    "langchain-core>=0.3.26,<0.4.0",
+    "langchain-openai>=0.2.0,<0.3.0",
+    "langgraph>=0.5.0,<1.0.0",
+    "langgraph-checkpoint-redis>=0.1.0,<0.4.0",
+    "redis>=5.0.0",
+    "psycopg2-binary>=2.9.0",
+    "rich>=13.0.0",
+    "prompt-toolkit>=3.0.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = ["-v", "--tb=short", "--strict-markers"]
+
+[tool.coverage.run]
+source = ["code_agent"]
+omit = ["tests/*"]
+
+[project.scripts]
+sh-agent = "code_agent.cli:main"
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
