@@ -54,15 +54,15 @@ def finalize(state: CodingState) -> dict:
 
     exploration = state.get("exploration_result", "")
     if exploration:
-        parts.append(f"## 代码分析\n\n{exploration[:2000]}")
+        parts.append(f"## 代码分析\n\n{exploration}")
 
     review = state.get("review_feedback", "")
     if review:
-        parts.append(f"## 审查结果\n\n{review[:500]}")
+        parts.append(f"## 审查结果\n\n{review}")
 
     test = state.get("test_result", "")
     if test:
-        parts.append(f"## 测试结果\n\n{test[:500]}")
+        parts.append(f"## 测试结果\n\n{test}")
 
     final = "\n\n".join(parts) if parts else "任务完成。"
     return {
