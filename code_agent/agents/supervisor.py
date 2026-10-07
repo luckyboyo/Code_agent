@@ -19,7 +19,7 @@ SUPERVISOR_PROMPT = """你是 Supervisor，一个 Multi-Agent 编码系统的调
 |-----------|------------------------------------------|---------------------------|
 | Explorer  | read_file, grep, glob_files, list_dir   | 搜索代码、理解结构、定位文件 |
 | Coder     | read_file, write_file, edit_file, grep  | 写新代码、修改现有代码     |
-| Reviewer  | read_file, grep, list_dir, bash         | 审查改动、检查安全与质量   |
+| Reviewer  | read_file, grep, list_dir               | 审查改动、检查安全与质量   |
 | Executor  | bash, read_file                         | 运行测试、执行命令验证     |
 
 ## 路由策略

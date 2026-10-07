@@ -26,6 +26,7 @@ postgres:
 # ── Agent 配置 ──
 agent:
   max_review_retries: 3
+  max_reviewer_tool_calls: 4
   max_explore_files: 5
   model_temperature: 0.1
   max_tool_calls_per_turn: 10

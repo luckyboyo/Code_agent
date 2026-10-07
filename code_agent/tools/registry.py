@@ -10,7 +10,7 @@ ALL_TOOLS = [read_file, write_file, edit_file, grep, glob_files, list_dir, bash]
 AGENT_TOOLS = {
     "explorer":    [read_file, grep, glob_files, list_dir],
     "coder":       [read_file, write_file, edit_file, grep, glob_files, list_dir],
-    "reviewer":    [read_file, grep, list_dir, bash],
+    "reviewer":    [read_file, grep, list_dir],  # 只读审查工具
     "executor":    [bash, read_file],
     "supervisor":  [],   # Supervisor 纯推理，不持有工具
 }

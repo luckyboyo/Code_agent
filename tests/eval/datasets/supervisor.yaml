@@ -9,7 +9,7 @@
   expected:
     route_decision: "explore"
     must_contain: ["explore"]
-    must_not_contain: ["code", "execute"]
+    must_not_contain: ["coder", "execute"]
 
 - name: "代码修改任务-路由到explore"
   input: "给 utils.py 添加参数校验"
