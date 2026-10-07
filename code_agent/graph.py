@@ -22,6 +22,21 @@ def route_after_supervisor(state: CodingState) -> str:
         and retry >= max_retries):
         return "finish"
 
+    # Explorer 一轮已返回完整结果后禁止再进相同节点，防止 Supervisor 反复选择 explore。
+    if agent == "explore" and state.get("exploration_result"):
+        plan = (state.get("task_plan") or "").lower()
+        if any(marker in plan for marker in ("coder", "编码", "修改", "修复", "新增", "实现")):
+            return "code"
+        if any(marker in plan for marker in ("reviewer", "审查", "review")):
+            return "review"
+        if any(marker in plan for marker in ("executor", "验证", "运行测试", "execute")):
+            return "execute"
+        return "finish"
+
+    # Executor 已经验证过时，不重复执行相同验证；失败则交给 Coder 修复。
+    if agent == "execute" and state.get("test_result"):
+        return "finish" if state.get("test_passed") else "code"
+
     return agent
 
 
@@ -94,7 +109,11 @@ def finalize(state: CodingState) -> dict:
             "## 执行状态\n\n人工拒绝了 Executor 验证请求；任务已停止，未运行测试或命令。"
         )
 
-    final = "\n\n".join(parts) if parts else "任务完成。"
+    # 纯对话任务可能由 Supervisor 直接回答，没有 Explorer/Reviewer/Executor 产物。
+    # 这时保留 supervisor_node 写入的 final_response，避免退化成“任务完成”。
+    final = "\n\n".join(parts) if parts else (
+        state.get("final_response") or "任务完成。"
+    )
     return {
         "final_response": final,
         "task_complete": True,

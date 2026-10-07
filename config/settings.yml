@@ -14,9 +14,9 @@ redis:
   ttl_file_cache: 300
   ttl_grep_cache: 30
 
-# ── PostgreSQL 审计日志配置（可选） ──
+# ── PostgreSQL 会话/任务/消息存储与审计日志 ──
 postgres:
-  enabled: false
+  enabled: true
   host: "localhost"
   port: 5432
   database: "sh_agent"
@@ -25,6 +25,7 @@ postgres:
 
 # ── Agent 配置 ──
 agent:
+  graph_recursion_limit: 64
   max_review_retries: 3
   max_reviewer_tool_calls: 4
   max_explore_files: 5

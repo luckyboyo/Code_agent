@@ -1,10 +1,15 @@
 """Explorer Agent — 搜索、阅读、理解代码"""
+from pathlib import Path
+from threading import Lock
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import StructuredTool
+from langgraph.errors import GraphRecursionError
 from langgraph.prebuilt import create_react_agent
-from langchain_core.messages import HumanMessage
 from code_agent.model_factory import get_chat_model
 from code_agent.tools.registry import AGENT_TOOLS
 from code_agent.state import CodingState
 from code_agent.project_context import get_project_context, format_project_context
+from code_agent.config import get_setting
 
 EXPLORER_PROMPT = """你是 Code Explorer，负责深入理解代码库。
 
@@ -19,6 +24,7 @@ EXPLORER_PROMPT = """你是 Code Explorer，负责深入理解代码库。
 - 不确定的地方标注 "[需确认]"
 - 如果项目有规范的模块结构，指出代码的组织方式
 - 完成探索后在末尾写 [探索完成]
+- 最多调用工具 {max_tool_calls} 次；达到上限后立即根据已有信息总结，不要继续调用工具
 
 ## 注意
 - 不要读超大文件（>500行）的全部内容，用 grep 定位关键区域
@@ -27,11 +33,41 @@ EXPLORER_PROMPT = """你是 Code Explorer，负责深入理解代码库。
 """
 
 
+def _make_bounded_tools(workspace: str, max_tool_calls: int) -> list[StructuredTool]:
+    """限制 Explorer 的工具调用次数，并把搜索范围固定在当前工作区。"""
+    workspace_root = Path(workspace).resolve()
+    counter = {"calls": 0}
+    counter_lock = Lock()
+    bounded_tools = []
+
+    for source_tool in AGENT_TOOLS["explorer"]:
+        def invoke_limited(_tool=source_tool, **kwargs):
+            with counter_lock:
+                if counter["calls"] >= max_tool_calls:
+                    return (
+                        f"已达到 Explorer 的 {max_tool_calls} 次工具调用上限。"
+                        "请根据已有结果完成探索总结。"
+                    )
+                counter["calls"] += 1
+            kwargs["workspace_dir"] = str(workspace_root)
+            return _tool.invoke(kwargs)
+
+        bounded_tools.append(StructuredTool.from_function(
+            func=invoke_limited,
+            name=source_tool.name,
+            description=source_tool.description,
+            args_schema=source_tool.args_schema,
+        ))
+
+    return bounded_tools
+
+
 def explorer_node(state: CodingState) -> dict:
+    max_tool_calls = int(get_setting("agent", "max_tool_calls_per_turn") or 10)
     agent = create_react_agent(
         model=get_chat_model(),
-        tools=AGENT_TOOLS["explorer"],
-        prompt=EXPLORER_PROMPT,
+        tools=_make_bounded_tools(state.get("workspace_dir", "."), max_tool_calls),
+        prompt=EXPLORER_PROMPT.replace("{max_tool_calls}", str(max_tool_calls)),
     )
 
     task = state.get("user_request", "")
@@ -49,15 +85,26 @@ def explorer_node(state: CodingState) -> dict:
     )
 
     existing = list(state.get("messages", []))
-    result = agent.invoke({"messages": existing + [HumanMessage(content=prompt)]})
-    last_msg = result["messages"][-1].content
+    try:
+        result = agent.invoke(
+            {"messages": existing + [HumanMessage(content=prompt)]},
+            config={"recursion_limit": max(25, max_tool_calls * 3 + 3)},
+        )
+        last_msg = result["messages"][-1].content
+        messages = result["messages"]
+    except GraphRecursionError:
+        last_msg = (
+            "[探索受限] Explorer 达到递归保护上限，未能完成全部检索。"
+            "请基于已收集的信息继续，不要重复调用 Explorer。"
+        )
+        messages = existing + [AIMessage(content=last_msg)]
 
     relevant_files = _extract_files(last_msg, workspace)
 
     return {
         "exploration_result": last_msg,
         "relevant_files": relevant_files,
-        "messages": result["messages"],
+        "messages": messages,
     }
 
 

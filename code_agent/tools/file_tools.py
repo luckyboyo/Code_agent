@@ -5,6 +5,28 @@ from pathlib import Path
 from langchain_core.tools import tool
 
 
+def _get_redis_store():
+    try:
+        from code_agent.storage.redis_store import RedisStore
+        return RedisStore.get_instance()
+    except Exception:
+        return None
+
+
+def _invalidate_tool_caches(abs_path: str):
+    store = _get_redis_store()
+    if store is None:
+        return
+    try:
+        store.invalidate_file(abs_path)
+    except Exception:
+        pass
+    try:
+        store.clear_grep_cache()
+    except Exception:
+        pass
+
+
 def _safe_path(base_dir: str, file_path: str) -> str:
     """防止路径穿越，确保在 workspace 内"""
     base_dir = os.path.abspath(base_dir)
@@ -33,8 +55,24 @@ def read_file(file_path: str, workspace_dir: str = ".") -> str:
         return f"[错误] 文件不存在: {file_path}"
     if not os.path.isfile(abs_path):
         return f"[错误] 不是文件: {file_path}"
-    with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
-        content = f.read()
+    stat = os.stat(abs_path)
+    version = f"{stat.st_mtime_ns}:{stat.st_size}"
+    store = _get_redis_store()
+    content = None
+    if store is not None:
+        try:
+            content = store.get_cached_file(abs_path, version)
+        except Exception:
+            # Redis 是可选缓存；不可用时继续直接读文件。
+            pass
+    if content is None:
+        with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        if store is not None:
+            try:
+                store.cache_file(abs_path, content, version)
+            except Exception:
+                pass
     # 加上行号
     lines = content.split("\n")
     numbered = "\n".join(f"{i+1:4d}| {line}" for i, line in enumerate(lines))
@@ -53,6 +91,7 @@ def write_file(file_path: str, content: str, workspace_dir: str = ".") -> str:
     os.makedirs(os.path.dirname(abs_path) or ".", exist_ok=True)
     with open(abs_path, "w", encoding="utf-8") as f:
         f.write(content)
+    _invalidate_tool_caches(abs_path)
     lines = content.count("\n") + 1
 
     tag = "[DIFF:write]"
@@ -84,6 +123,7 @@ def edit_file(file_path: str, old_string: str, new_string: str, workspace_dir: s
     new_content = content.replace(old_string, new_string, 1)
     with open(abs_path, "w", encoding="utf-8") as f:
         f.write(new_content)
+    _invalidate_tool_caches(abs_path)
 
     diff_text = _make_diff(file_path, content, new_content)
     return f"[DIFF:edit]\n{diff_text}\n[已修改] {file_path} (1 处替换)"

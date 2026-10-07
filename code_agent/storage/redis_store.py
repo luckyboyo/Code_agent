@@ -1,7 +1,6 @@
 """Redis — Checkpoint 持久化 + 工具结果缓存"""
 import hashlib
 import json
-from datetime import datetime, timezone
 from typing import Optional
 import redis
 from langgraph.checkpoint.redis import RedisSaver
@@ -9,7 +8,7 @@ from code_agent.config import get_setting
 
 
 class RedisStore:
-    """Redis 统一管理：Checkpoint + 业务缓存"""
+    """Redis 管理 LangGraph checkpoint 和可过期缓存。"""
 
     _instance: Optional["RedisStore"] = None
 
@@ -41,62 +40,81 @@ class RedisStore:
             self._checkpointer_ready = True
         return self.saver
 
-    # ── 可恢复任务索引 ──
-    def save_task(self, task_id: str, meta: dict):
-        """持久化任务元数据，并加入可查询任务索引。"""
-        now = datetime.now(timezone.utc).isoformat()
-        saved = {**meta, "task_id": task_id, "updated_at": now}
-        self.client.set(
-            f"sh-agent:task:{task_id}",
-            json.dumps(saved, ensure_ascii=False),
-        )
-        self.client.zadd("sh-agent:tasks", {task_id: datetime.now(timezone.utc).timestamp()})
-
-    def get_task(self, task_id: str) -> Optional[dict]:
-        value = self.client.get(f"sh-agent:task:{task_id}")
-        return json.loads(value) if value else None
-
-    def update_task(self, task_id: str, **updates) -> Optional[dict]:
-        meta = self.get_task(task_id)
-        if meta is None:
-            return None
-        meta.update(updates)
-        self.save_task(task_id, meta)
-        return meta
-
-    def list_tasks(self, limit: int = 20) -> list[dict]:
-        task_ids = self.client.zrevrange("sh-agent:tasks", 0, max(0, limit - 1))
+    # ── 旧版本 Redis 业务数据，只用于首次迁移至 PostgreSQL ──
+    def list_legacy_tasks(self, limit: int = 100000) -> list[dict]:
+        if limit <= 0:
+            return []
+        task_ids = self.client.zrevrange("sh-agent:tasks", 0, limit - 1)
         tasks = []
         for task_id in task_ids:
-            meta = self.get_task(task_id)
-            if meta is not None:
-                tasks.append(meta)
+            value = self.client.get(f"sh-agent:task:{task_id}")
+            if value:
+                tasks.append(json.loads(value))
         return tasks
 
-    # ── 文件内容缓存 ──
-    def cache_file(self, file_path: str, content: str):
-        key = f"file:{hashlib.md5(file_path.encode()).hexdigest()}"
-        ttl = get_setting("redis", "ttl_file_cache")
-        self.client.setex(key, ttl, content)
+    def list_legacy_sessions(self, limit: int = 100000) -> list[dict]:
+        if limit <= 0:
+            return []
+        session_ids = self.client.zrevrange("sh-agent:sessions", 0, limit - 1)
+        sessions = []
+        for session_id in session_ids:
+            value = self.client.get(f"sh-agent:session:{session_id}")
+            if value:
+                sessions.append(json.loads(value))
+        return sessions
 
-    def get_cached_file(self, file_path: str) -> Optional[str]:
-        key = f"file:{hashlib.md5(file_path.encode()).hexdigest()}"
-        return self.client.get(key)
+    # ── 文件内容缓存 ──
+    @staticmethod
+    def _cache_key(kind: str, identity: str) -> str:
+        digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        return f"sh-agent:cache:{kind}:{digest}"
+
+    def cache_file(self, file_path: str, content: str, version: str = ""):
+        ttl = int(get_setting("redis", "ttl_file_cache") or 0)
+        if ttl <= 0:
+            return
+        key = self._cache_key("file", file_path)
+        value = json.dumps(
+            {"version": version, "content": content}, ensure_ascii=False
+        )
+        self.client.setex(key, ttl, value)
+
+    def get_cached_file(self, file_path: str, version: str = "") -> Optional[str]:
+        key = self._cache_key("file", file_path)
+        value = self.client.get(key)
+        if value is None:
+            return None
+        try:
+            payload = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("version") != version:
+            return None
+        return payload.get("content")
+
+    def invalidate_file(self, file_path: str):
+        self.client.delete(self._cache_key("file", file_path))
 
     # ── Grep 结果缓存 ──
-    def cache_grep(self, pattern: str, result: str):
-        key = f"grep:{hashlib.md5(pattern.encode()).hexdigest()}"
-        ttl = get_setting("redis", "ttl_grep_cache")
+    def cache_grep(self, identity: str, result: str):
+        ttl = int(get_setting("redis", "ttl_grep_cache") or 0)
+        if ttl <= 0:
+            return
+        key = self._cache_key("grep", identity)
         self.client.setex(key, ttl, result)
 
-    def get_cached_grep(self, pattern: str) -> Optional[str]:
-        key = f"grep:{hashlib.md5(pattern.encode()).hexdigest()}"
+    def get_cached_grep(self, identity: str) -> Optional[str]:
+        key = self._cache_key("grep", identity)
         return self.client.get(key)
 
-    # ── 会话元数据 ──
-    def save_session_meta(self, session_id: str, meta: dict):
-        self.client.hset(f"session:{session_id}", mapping=meta)
-        self.client.expire(f"session:{session_id}", 3600 * 24)
-
-    def get_session_meta(self, session_id: str) -> dict:
-        return self.client.hgetall(f"session:{session_id}")
+    def clear_grep_cache(self):
+        batch = []
+        for key in self.client.scan_iter(match="sh-agent:cache:grep:*", count=200):
+            batch.append(key)
+            if len(batch) >= 200:
+                self.client.delete(*batch)
+                batch.clear()
+        if batch:
+            self.client.delete(*batch)

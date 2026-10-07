@@ -29,6 +29,12 @@ SUPERVISOR_PROMPT = """你是 Supervisor，一个 Multi-Agent 编码系统的调
 - 代码审查（不改）：Explorer → Reviewer → finish
 - Reviewer 不通过时 Coder→Reviewer 自动循环，最多 {max_retries} 轮，你无需干预
 
+当任务可以直接根据当前对话上下文回答、无需调用其他 Agent 时，选择 finish，并在调度信息后附上用户可见的答案，格式必须为：
+<final_answer>
+直接回答用户的问题，不要重复任务分析、执行计划或路由决策。
+</final_answer>
+如果 finish 是因为其他 Agent 已完成工作，则不需要输出此标签。
+
 ## 输出格式
 ```
 任务分析: <一句话>
@@ -94,13 +100,43 @@ def supervisor_node(state: CodingState) -> dict:
     last_msg = result["messages"][-1].content
 
     decision = _parse_decision(last_msg, state)
-    task_plan = _extract_plan(last_msg)
+    task_plan = state.get("task_plan") if exploration and state.get("task_plan") else _extract_plan(last_msg)
 
-    return {
+    update = {
         "task_plan": task_plan,
         "current_agent": decision,
         "messages": result["messages"],
     }
+    if decision == "finish":
+        direct_answer = _extract_final_answer(last_msg)
+        if direct_answer:
+            update["final_response"] = direct_answer
+    return update
+
+
+def _extract_final_answer(text: str) -> str | None:
+    """只提取 Supervisor 明确标记的直答，避免把调度计划展示为最终答案。"""
+    tagged = re.search(
+        r"<final_answer>\s*(.*?)\s*</final_answer>", text, re.IGNORECASE | re.DOTALL
+    )
+    if tagged:
+        answer = tagged.group(1).strip()
+        return answer or None
+
+    # 兼容模型尚未按新格式输出、但用了常见的“回答”标题的情况。
+    heading = re.search(
+        r"(?ims)^\s*(?:#{1,6}\s*)?(?:最终回答|回答)\s*[:：]?\s*(.*)\s*$",
+        text,
+    )
+    if heading:
+        answer = re.sub(r"\s*\[任务完成\]\s*$", "", heading.group(1)).strip()
+        return answer or None
+
+    # 简单寒暄等纯文本直答可直接作为最终答案；含调度字段的内容不当作答案。
+    if re.search(r"(?m)^\s*(?:任务分析|执行计划|决策)\s*[:：]", text):
+        return None
+    answer = text.strip()
+    return answer or None
 
 
 def parse_decision(text: str, exploration_result: str | None = None,
@@ -160,7 +196,19 @@ def _parse_decision(text: str, state: CodingState) -> str:
 
 def _extract_plan(text: str) -> str:
     """提取任务计划文本"""
-    for line in text.split("\n"):
-        if "任务分析" in line or "执行计划" in line:
+    lines = text.splitlines()
+    plan_lines = []
+    collecting = False
+    for line in lines:
+        stripped = line.strip()
+        if re.match(r"^(?:执行计划|plan)\s*[:：]", stripped, re.IGNORECASE):
+            collecting = True
+            plan_lines.append(re.sub(
+                r"^(?:执行计划|plan)\s*[:：]", "", stripped, flags=re.IGNORECASE
+            ).strip())
             continue
-    return text[:300]
+        if collecting and re.match(r"^(?:决策|decision)\s*[:：]", stripped, re.IGNORECASE):
+            break
+        if collecting:
+            plan_lines.append(line)
+    return "\n".join(plan_lines).strip() or text[:500]

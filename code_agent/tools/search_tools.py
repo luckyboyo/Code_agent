@@ -1,6 +1,7 @@
 """搜索工具 — Grep / Glob / ListDir"""
 import os
 import glob as glob_mod
+import json
 import subprocess
 from langchain_core.tools import tool
 
@@ -13,16 +14,38 @@ def _safe_dir(workspace_dir: str, sub_path: str = "") -> str:
     return full
 
 
+def _get_redis_store():
+    try:
+        from code_agent.storage.redis_store import RedisStore
+        return RedisStore.get_instance()
+    except Exception:
+        return None
+
+
 @tool(description="在文件中搜索文本模式（正则）。入参: pattern(搜索模式), path(搜索目录，默认'.'), glob(文件过滤，如'*.py')")
 def grep(pattern: str, path: str = ".", glob: str = "*", workspace_dir: str = ".") -> str:
     search_dir = _safe_dir(workspace_dir, path)
+    cache_identity = json.dumps(
+        {"pattern": pattern, "search_dir": search_dir, "glob": glob},
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    store = _get_redis_store()
+    if store is not None:
+        try:
+            cached = store.get_cached_grep(cache_identity)
+            if cached is not None:
+                return cached
+        except Exception:
+            # Redis 是可选缓存；不可用时照常执行搜索。
+            pass
+
     try:
         result = subprocess.run(
             ["rg", "--line-number", "--max-count=30", "--glob", glob, pattern, search_dir],
             capture_output=True, text=True, timeout=15, encoding="utf-8"
         )
         output = result.stdout.strip()
-        return output if output else f"[无匹配] {pattern}"
     except FileNotFoundError:
         # 如果没有 ripgrep，回退到 Python
         import re
@@ -40,7 +63,15 @@ def grep(pattern: str, path: str = ".", glob: str = "*", workspace_dir: str = ".
                                 matches.append(f"{rel}:{i}: {line.strip()[:120]}")
                 except Exception:
                     continue
-        return "\n".join(matches) if matches else f"[无匹配] {pattern}"
+        output = "\n".join(matches) if matches else f"[无匹配] {pattern}"
+
+    output = output if output else f"[无匹配] {pattern}"
+    if store is not None:
+        try:
+            store.cache_grep(cache_identity, output)
+        except Exception:
+            pass
+    return output
 
 
 @tool(description="按文件名模式查找文件。入参: pattern(glob模式，如'**/*.py')")
