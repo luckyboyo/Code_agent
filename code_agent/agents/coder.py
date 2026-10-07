@@ -60,4 +60,9 @@ def coder_node(state: CodingState) -> dict:
     result = agent.invoke({"messages": existing + [HumanMessage(content=prompt)]})
     last_msg = result["messages"][-1].content
 
-    return {"code_changes": [], "messages": result["messages"]}
+    return {
+        "code_changes": [],
+        "approval_required": True,
+        "approval_decision": None,
+        "messages": result["messages"],
+    }

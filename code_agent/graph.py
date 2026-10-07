@@ -1,6 +1,7 @@
 """LangGraph StateGraph — Multi-Agent 编排"""
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.redis import RedisSaver
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import interrupt
 from code_agent.state import CodingState
 from code_agent.agents.supervisor import supervisor_node
 from code_agent.agents.explorer import explorer_node
@@ -30,15 +31,39 @@ def route_after_coder(state: CodingState) -> str:
 
 
 def route_after_reviewer_update(state: CodingState) -> str:
-    """审查后决定：通过→执行，不通过→Coder 修复（自包含闭环）"""
+    """审查通过后，代码变更先等待人工确认；未通过则回到 Coder 修复。"""
     retry = state.get("retry_count", 0)
     max_retries = state.get("max_retries", 3)
 
     if state.get("review_approved"):
-        return "execute"
+        return "approval" if state.get("approval_required") else "execute"
     if retry < max_retries:
         return "coder"
     return "supervisor"
+
+
+def approval_node(state: CodingState) -> dict:
+    """在执行验证前暂停，等待用户批准或拒绝。"""
+    decision = interrupt({
+        "type": "code_change_approval",
+        "message": "代码已通过 Reviewer，是否继续运行 Executor 验证？",
+        "user_request": state.get("user_request", ""),
+        "review_feedback": state.get("review_feedback", ""),
+    })
+
+    if isinstance(decision, dict):
+        approved = bool(decision.get("approved"))
+    else:
+        approved = decision is True
+
+    return {"approval_decision": "approved" if approved else "rejected"}
+
+
+def route_after_approval(state: CodingState) -> str:
+    """只有人工批准后才允许运行 Executor。"""
+    if state.get("approval_decision") == "approved":
+        return "execute"
+    return "finish"
 
 
 def after_reviewer_update(state: CodingState) -> dict:
@@ -64,6 +89,11 @@ def finalize(state: CodingState) -> dict:
     if test:
         parts.append(f"## 测试结果\n\n{test}")
 
+    if state.get("approval_decision") == "rejected":
+        parts.append(
+            "## 执行状态\n\n人工拒绝了 Executor 验证请求；任务已停止，未运行测试或命令。"
+        )
+
     final = "\n\n".join(parts) if parts else "任务完成。"
     return {
         "final_response": final,
@@ -80,6 +110,7 @@ def build_graph() -> StateGraph:
     builder.add_node("coder", coder_node)
     builder.add_node("reviewer", reviewer_node)
     builder.add_node("reviewer_update", after_reviewer_update)
+    builder.add_node("approval", approval_node)
     builder.add_node("executor", executor_node)
     builder.add_node("finalizer", finalize)
 
@@ -116,10 +147,18 @@ def build_graph() -> StateGraph:
         "reviewer_update",
         route_after_reviewer_update,
         {
+            "approval": "approval",
             "execute": "executor",
             "coder": "coder",
             "supervisor": "supervisor",
         }
+    )
+
+    # 人工确认后才进入 Executor；拒绝则直接汇总并结束。
+    builder.add_conditional_edges(
+        "approval",
+        route_after_approval,
+        {"execute": "executor", "finish": "finalizer"},
     )
 
     # 结束
@@ -128,15 +167,19 @@ def build_graph() -> StateGraph:
     return builder
 
 
-def compile_graph(with_checkpoint: bool = True) -> StateGraph:
+def compile_graph(
+    with_checkpoint: bool = True,
+    in_memory_checkpoint: bool = False,
+) -> StateGraph:
     builder = build_graph()
 
     if with_checkpoint:
-        try:
-            redis_store = RedisStore.get_instance()
-            checkpointer = redis_store.get_checkpointer()
-            return builder.compile(checkpointer=checkpointer)
-        except Exception:
-            pass  # Redis 不可用时降级为无 checkpoint
+        redis_store = RedisStore.get_instance()
+        checkpointer = redis_store.get_checkpointer()
+        return builder.compile(checkpointer=checkpointer)
+
+    if in_memory_checkpoint:
+        # 无 Redis 时仍支持当前进程内的人工暂停/继续；进程退出后状态不会保留。
+        return builder.compile(checkpointer=MemorySaver())
 
     return builder.compile()

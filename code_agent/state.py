@@ -35,6 +35,8 @@ class CodingState(TypedDict):
     # ── Reviewer 产出 ──
     review_feedback: Optional[str]          # 审查意见
     review_approved: bool                   # 是否通过审查
+    approval_required: bool                 # 本任务是否需要人工确认后再执行
+    approval_decision: Optional[str]        # 人工决定：approved / rejected
 
     # ── Executor 产出 ──
     test_result: Optional[str]              # 测试/运行结果
