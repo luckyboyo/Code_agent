@@ -1,4 +1,5 @@
 """Supervisor Agent — 任务拆解 + 动态调度"""
+import re
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage
 from code_agent.model_factory import get_chat_model
@@ -107,6 +108,15 @@ def parse_decision(text: str, exploration_result: str | None = None,
                    test_result: str | None = None, retry_count: int = 0,
                    max_retries: int = 3) -> str:
     """从 Supervisor 输出中解析路由决策（纯函数，可测试）"""
+    decision_pattern = re.compile(
+        r"^\s*(?:决策|decision)\s*[:：]\s*(explore|code|review|execute|finish)\b",
+        re.IGNORECASE,
+    )
+    for line in text.splitlines():
+        match = decision_pattern.match(line)
+        if match:
+            return match.group(1).lower()
+
     text_lower = text.lower()
 
     if "finish" in text_lower:

@@ -54,7 +54,7 @@ def finalize(state: CodingState) -> dict:
 
     exploration = state.get("exploration_result", "")
     if exploration:
-        parts.append(f"## 代码分析\n\n{exploration[:500]}")
+        parts.append(f"## 代码分析\n\n{exploration[:2000]}")
 
     review = state.get("review_feedback", "")
     if review:

@@ -6,7 +6,7 @@ from rich.markdown import Markdown
 from rich.console import Console
 from rich.syntax import Syntax
 from rich.panel import Panel
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from code_agent.state import CodingState
 from code_agent.graph import compile_graph
@@ -140,10 +140,15 @@ def main():
                 console.print()
                 console.print(Markdown(final))
 
-            # 保存本轮消息到历史（截断过长历史防止 token 爆炸）
-            messages_history = chunk.get("messages", messages_history)
+            # 跨轮只保存用户输入和最终回复，避免截断后遗留孤立的 ToolMessage。
+            if final:
+                messages_history.extend([
+                    HumanMessage(content=user_input),
+                    AIMessage(content=final),
+                ])
+
+            # 限制跨轮上下文长度；这里保存的是完整的用户/最终回复对。
             if len(messages_history) > 40:
-                # 保留最近 40 条（约 20 轮对话）
                 messages_history = messages_history[-40:]
 
         except Exception as e:
@@ -242,11 +247,18 @@ def _handle_command(cmd: str, console: Console, messages_history: list = None):
         console.print(f"[dim]会话轮次: {msg_count // 2} 轮[/dim]")
     elif cmd == "/setup":
         _setup_wizard()
-    elif cmd == "/eval" or cmd == "/evaluate":
-        _run_eval()
-    elif cmd.startswith("/eval "):
-        agent = cmd.split(" ", 1)[1].strip()
-        _run_eval(agent)
+    elif cmd == "/eval" or cmd == "/evaluate" or cmd.startswith("/eval ") or cmd.startswith("/evaluate "):
+        parts = cmd.split()
+        args = parts[1:]
+        live = "--live" in args
+        args = [arg for arg in args if arg != "--live"]
+        valid_agents = {"supervisor", "explorer", "coder", "reviewer", "executor"}
+
+        if len(args) > 1 or any(arg not in valid_agents for arg in args):
+            console.print("[yellow]用法: /eval [supervisor|explorer|coder|reviewer|executor] [--live][/yellow]")
+            return
+
+        _run_eval(agent_filter=args[0] if args else "", live=live)
     else:
         console.print(f"[yellow]未知命令: {cmd}[/yellow] 输入 /help 查看帮助")
 
@@ -311,25 +323,26 @@ def _setup_wizard():
     console.print()
 
 
-def _run_eval(agent_filter: str = ""):
-    """运行 Agent 评测"""
-    from pathlib import Path
+def _run_eval(agent_filter: str = "", live: bool = False):
+    """运行 Agent 评测；live=True 时调用真实 Agent。"""
     from tests.eval.runner import run_eval
 
     console.print()
-    console.print("[bold cyan]正在运行 Agent 评测...[/bold cyan]")
-    console.print("[dim]离线模式 (mock) — 不调用 LLM，仅测试框架逻辑[/dim]")
+    mode_text = "真实 LLM 模式 — 会调用模型和 Agent 工具" if live else "离线模拟模式 — 不调用 LLM"
+    console.print(f"[bold cyan]正在运行 Agent 评测...[/bold cyan]")
+    console.print(f"[dim]{mode_text}[/dim]")
     console.print()
 
     agents = [agent_filter] if agent_filter else None
     try:
-        renderer = run_eval(mock=True, agents=agents)
+        renderer = run_eval(mock=not live, agents=agents)
         renderer.render_summary()
     except Exception as e:
         console.print(f"[red]评测运行失败: {e}[/red]")
 
     console.print()
-    console.print("[dim]💡 使用 /eval --live 可运行真实 LLM 评测 (需 API Key)[/dim]")
+    if not live:
+        console.print("[dim]💡 使用 /eval --live 可运行真实 LLM 评测 (需 API Key)[/dim]")
 
 
 if __name__ == "__main__":
